@@ -5,6 +5,10 @@ import java.security._
 import javax.crypto._
 import javax.crypto.spec._
 import fr.acinq.bitcoin.Base58
+import io.ipfs.api.Client
+import java.nio.file._
+import java.util
+import io.ipfs.api.Add
 
 class Encryptor {
   def makeKey(): SecretKeySpec = {
@@ -52,6 +56,18 @@ class ECDSASigner {
   }
 }
 
+class FileManager(ipfs: String = "localhost") {
+  val client = new Client(ipfs)
+
+  def store(str: String): String = store(str.getBytes("UTF-8"))
+
+  def store(bytes: Array[Byte]): String = {
+    val path = Paths.get("fdaf")
+    Files.write(path, bytes, StandardOpenOption.CREATE)
+    client.add(Array(path))(0).Hash
+  }
+}
+
 object Main {
   def main(args: Array[String]) {
     val signer = new ECDSASigner()
@@ -69,6 +85,10 @@ object Main {
 
     val sig = signer.sign(pair, "hui")
     println("Signature: " + Base58.encode(sig))
+
+    val manager = new FileManager()
+    val hash = manager.store("fdasfafas")
+    println(hash)
 
   }
 }
