@@ -11,6 +11,9 @@ import org.ethereum.crypto.ECKey._
 import org.ethereum.crypto.jce._
 import org.ethereum.crypto._
 
+import io.ipfs.api._
+import java.nio.file._
+
 object Simulator extends App {
   var step = 0
 
@@ -96,10 +99,18 @@ object Simulator extends App {
         s"\n\tguardKey(AES): ${Hex.toHexString(guardKey)}\n\tencryptedContent: ${Hex.toHexString(encryptedContent)}"
   }
 
-  val fileContent = "hello".getBytes
+  val filein = Paths.get("/tmp/abc")
 
-  val doc = DocToSign(fileContent)
+  val doc = DocToSign(Files.readAllBytes(filein))
   println("DocToSign:\n" + doc)
+
+  val ipfs = new Client("localhost")
+
+  val fileout = Paths.get("/tmp/" + Hex.toHexString(doc.fileHash))
+  println("temp file for encrypted content: " + fileout)
+  Files.write(fileout, doc.encryptedContent, StandardOpenOption.CREATE)
+  val ipfsHash = ipfs.add(Array(fileout))(0).Hash
+  println("ipfs hash: " + ipfsHash)
 
   //
   //
@@ -171,6 +182,7 @@ object Simulator extends App {
     fileHash: Array[Byte],
     encryptedContent: Array[Byte],
     signers: Seq[UserPubWithEncryptedGuardKey],
+    ipfsHash: Option[String] = None,
     originatorNeedsToSign: Boolean = false) {
 
     def isValid() = signers.nonEmpty
@@ -183,7 +195,8 @@ object Simulator extends App {
     doc.encryptedContent,
     Seq(
       userA.getPub.withEncryptedGuardKey(guardKeyforUserA),
-      userB.getPub.withEncryptedGuardKey(guardKeyforUserB)))
+      userB.getPub.withEncryptedGuardKey(guardKeyforUserB)),
+    Some(ipfsHash))
 
   println("signTask: " + signTask)
 
