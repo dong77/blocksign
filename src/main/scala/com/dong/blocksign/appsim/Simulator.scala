@@ -18,6 +18,13 @@ object Simulator extends App {
   println(s"\n\n($step) ==================================================")
   println("SIMULATE TWO USERS: userA and userB")
 
+  case class UserPub(accessPubKey: String, signPubKey: String) {
+    def withEncryptedGuardKey(encryptedGuardKey: Array[Byte]) =
+      UserPubWithEncryptedGuardKey(accessPubKey, signPubKey, encryptedGuardKey)
+  }
+
+  case class UserPubWithEncryptedGuardKey(accessPubKey: String, signPubKey: String, encryptedGuardKey: Array[Byte])
+
   case class User(
     accessPubKey: String,
     accessPrivKey: String,
@@ -26,6 +33,8 @@ object Simulator extends App {
 
     def accessECKey = ECKey.fromPrivate(Hex.decode(accessPrivKey))
     def signECKey = ECKey.fromPrivate(Hex.decode(signPrivKey))
+
+    def getPub = UserPub(accessPubKey, signPubKey)
 
     override def toString() = s"\taccessPubKey: $accessPubKey\n\taccessPrivKey: $accessPrivKey\n\tsignPubKey: $signPubKey\n\tsignPrivKey: $signPrivKey"
   }
@@ -65,7 +74,7 @@ object Simulator extends App {
   println(s"\n\n($step) ==================================================")
   println("CREATE A NEW SIGN TASK")
 
-  case class SignTask(
+  case class DocToSign(
     fileContent: Array[Byte]) {
 
     lazy val fileHash = HashUtil.sha3(fileContent)
@@ -87,10 +96,10 @@ object Simulator extends App {
         s"\n\tguardKey(AES): ${Hex.toHexString(guardKey)}\n\tencryptedContent: ${Hex.toHexString(encryptedContent)}"
   }
 
-  val fileContent = ("abc" * 10).getBytes
+  val fileContent = "hello".getBytes
 
-  val task = SignTask(fileContent)
-  println("task:\n" + task)
+  val doc = DocToSign(fileContent)
+  println("DocToSign:\n" + doc)
 
   //
   //
@@ -100,10 +109,10 @@ object Simulator extends App {
   println(s"\n\n($step) ==================================================")
   println("ENCRYPT GUARD_KEY FOR BOTH USERS")
 
-  val guardKeyforUserA = ECIESCoder.encrypt(userA.accessECKey.getPubKeyPoint, task.guardKey)
+  val guardKeyforUserA = ECIESCoder.encrypt(userA.accessECKey.getPubKeyPoint, doc.guardKey)
   println("guardKeyforUserA: " + Hex.toHexString(guardKeyforUserA))
 
-  val guardKeyforUserB = ECIESCoder.encrypt(userB.accessECKey.getPubKeyPoint, task.guardKey)
+  val guardKeyforUserB = ECIESCoder.encrypt(userB.accessECKey.getPubKeyPoint, doc.guardKey)
   println("guardKeyforUserB: " + Hex.toHexString(guardKeyforUserB))
 
   case class Assignment(user: User, encryptedGuardKey: Array[Byte]) {
@@ -134,13 +143,13 @@ object Simulator extends App {
     val contentDecrypted = {
       val cipher = Cipher.getInstance("AES")
       cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(guardKeyDecrypted, "AES"));
-      cipher.doFinal(task.encryptedContent)
+      cipher.doFinal(doc.encryptedContent)
     }
 
     println(s"contentDecrypted: ${Hex.toHexString(contentDecrypted)}")
     val hash = HashUtil.sha3(contentDecrypted)
 
-    val same = Hex.toHexString(hash) == Hex.toHexString(task.fileHash)
+    val same = Hex.toHexString(hash) == Hex.toHexString(doc.fileHash)
     println(s"file decrypted by A is the same as the original: $same")
   }
 
@@ -156,19 +165,66 @@ object Simulator extends App {
 
   step += 1
   println(s"\n\n($step) ==================================================")
-  println("SIGN THE FILE")
+  println("GENERATE SIGNTASK")
 
-  def signDoc(user: User) = {
-    val sig = user.signECKey.doSign(task.fileHash)
-    println("sigBase64: " + sig.toBase64())
-    sig
+  case class SignTask(
+    fileHash: Array[Byte],
+    encryptedContent: Array[Byte],
+    signers: Seq[UserPubWithEncryptedGuardKey],
+    originatorNeedsToSign: Boolean = false) {
+
+    def isValid() = signers.nonEmpty
+
+    def getOriginator = signers.head
   }
 
+  val signTask = SignTask(
+    doc.fileHash,
+    doc.encryptedContent,
+    Seq(
+      userA.getPub.withEncryptedGuardKey(guardKeyforUserA),
+      userB.getPub.withEncryptedGuardKey(guardKeyforUserB)))
+
+  println("signTask: " + signTask)
+
+  //
+  //
+  //
+
+  step += 1
+  println(s"\n\n($step) ==================================================")
+  println("SIGN THE FILE")
+
   println("UserA -------------")
-  val sigA = signDoc(userA)
+  val sigA = userA.signECKey.doSign(signTask.fileHash)
+  val userSigA = UserSig(userA.signPubKey, sigA.toBase64())
+  println(userSigA)
 
   println("UserB -------------")
-  val sigB = signDoc(userB)
+  val sigB = userB.signECKey.doSign(signTask.fileHash)
+  val userSigB = UserSig(userB.signPubKey, sigB.toBase64())
+  println(userSigB)
+
+  case class UserSig(signPubKey: String, sig: String)
+
+  case class SignTaskComplete(
+    fileHash: String,
+    signatures: Seq[UserSig]) {
+    def verify(): Boolean = {
+      signatures.map { userSig =>
+        val key = ECKey.fromPublicOnly(Hex.decode(userSig.signPubKey))
+        val bytes: Array[Byte] = Base64.decode(userSig.sig.getBytes("UTF-8"))
+        val v = bytes(0)
+        val r = bytes.slice(1, 33)
+        val s = bytes.slice(33, 65)
+        val sig = ECDSASignature.fromComponents(r, s, v)
+        key.verify(Hex.decode(fileHash), sig)
+      }.reduce(_ && _)
+    }
+  }
+
+  val stc = SignTaskComplete(Hex.toHexString(signTask.fileHash), Seq(userSigA, userSigB))
+  println("SignTaskComplete: " + stc)
 
   //
   //
@@ -178,7 +234,7 @@ object Simulator extends App {
   println(s"\n\n($step) ==================================================")
   println("VERIFY SIGNATURE")
 
-  println("userA's sig is valid?: " + userA.signECKey.verify(task.fileHash, sigA))
-  println("userB's sig is valid?: " + userB.signECKey.verify(task.fileHash, sigB))
+  println("Signatures verified?: " + stc.verify())
+
 }
 
