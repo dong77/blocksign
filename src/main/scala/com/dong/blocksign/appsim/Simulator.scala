@@ -12,15 +12,10 @@ import org.ethereum.crypto.jce._
 import org.ethereum.crypto._
 
 object Simulator extends App {
+  var step = 0
 
-  // val pair = KeyUtil.generateECDSAKeyPair()
-
-  // println(pair.getPublic.getEncoded.size)
-  // println(pair.getPrivate.getEncoded.size)
-  // val privKey = new BigInteger(Hex.toHexString(pair.getPublic.getEncoded), 16)
-  // val pubKey = new BigInteger(Hex.toHexString(pair.getPrivate.getEncoded), 16)
-
-  println("\n\n==================================================")
+  step += 1
+  println(s"\n\n($step) ==================================================")
   println("SIMULATE TWO USERS: userA and userB")
 
   case class User(
@@ -45,7 +40,8 @@ object Simulator extends App {
       Hex.toHexString(signKey.getPrivKeyBytes))
   }
 
-  println("UserA:\n" + userA); println("-" * 40)
+  println("UserA -------------")
+  println(userA)
 
   val userB = {
     val accessKey = new ECKey
@@ -56,12 +52,17 @@ object Simulator extends App {
       Hex.toHexString(signKey.getPubKey),
       Hex.toHexString(signKey.getPrivKeyBytes))
   }
-
-  println("UserB:\n" + userB); println("-" * 40)
+  println("UserB -------------")
+  println(userB)
 
   val users = Seq(userA, userB)
 
-  println("\n\n==================================================")
+  //
+  //
+  //
+
+  step += 1
+  println(s"\n\n($step) ==================================================")
   println("CREATE A NEW SIGN TASK")
 
   case class SignTask(
@@ -91,7 +92,12 @@ object Simulator extends App {
   val task = SignTask(fileContent)
   println("task:\n" + task)
 
-  println("==================================================")
+  //
+  //
+  //
+
+  step += 1
+  println(s"\n\n($step) ==================================================")
   println("ENCRYPT GUARD_KEY FOR BOTH USERS")
 
   val guardKeyforUserA = ECIESCoder.encrypt(userA.accessECKey.getPubKeyPoint, task.guardKey)
@@ -106,36 +112,73 @@ object Simulator extends App {
 
   val assignmentA = Assignment(userA, guardKeyforUserA)
   val assignmentB = Assignment(userB, guardKeyforUserB)
-  println("assignmentA:\n" + assignmentA); println("-" * 40)
-  println("assignmentB:\n" + assignmentB); println("-" * 40)
 
-  println("==================================================")
-  println("UserA DECRYPTE AND CHECK THE FILE (works the same for userB)")
+  println("assignmentA -------------")
+  println(assignmentA)
 
-  val guardKeyDecryptedByUserA = ECIESCoder.decrypt(userA.accessECKey.getPrivKey, guardKeyforUserA)
-  println("guardKeyDecryptedByUserA: " + Hex.toHexString(guardKeyDecryptedByUserA))
+  println("assignmentB -------------")
+  println(assignmentB)
 
-  val contentDecryptedByUserA = {
-    val cipher = Cipher.getInstance("AES")
-    cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(guardKeyDecryptedByUserA, "AES"));
-    cipher.doFinal(task.encryptedContent)
+  //
+  //
+  //
+
+  step += 1
+  println(s"\n\n($step) ==================================================")
+  println("DECRYPTE AND CHECK THE FILE")
+
+  def decode(user: User, encryptedGuardKey: Array[Byte]) = {
+    val guardKeyDecrypted = ECIESCoder.decrypt(user.accessECKey.getPrivKey, encryptedGuardKey)
+    println("guardKeyDecrypted: " + Hex.toHexString(guardKeyDecrypted))
+
+    val contentDecrypted = {
+      val cipher = Cipher.getInstance("AES")
+      cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(guardKeyDecrypted, "AES"));
+      cipher.doFinal(task.encryptedContent)
+    }
+
+    println(s"contentDecrypted: ${Hex.toHexString(contentDecrypted)}")
+    val hash = HashUtil.sha3(contentDecrypted)
+
+    val same = Hex.toHexString(hash) == Hex.toHexString(task.fileHash)
+    println(s"file decrypted by A is the same as the original: $same")
   }
 
-  println(s"contentDecryptedByUserA: ${Hex.toHexString(contentDecryptedByUserA)}")
-  val hash = HashUtil.sha3(fileContent)
+  println("UserA -------------")
+  decode(userA, guardKeyforUserA)
 
-  val same = Hex.toHexString(hash) == Hex.toHexString(task.fileHash)
-  println(s"file decrypted by A is the same as the original: $same")
+  println("UserB -------------")
+  decode(userB, guardKeyforUserB)
 
-  println("==================================================")
-  println("UserA SIGN THE FILE (works the same for userB)")
+  //
+  //
+  //
 
-  val sigA = userA.signECKey.doSign(task.fileHash)
-  val sigABase64 = sigA.toBase64()
-  println("sigABase64: " + sigABase64)
+  step += 1
+  println(s"\n\n($step) ==================================================")
+  println("SIGN THE FILE")
 
-  println("==================================================")
-  println("VERIFY userA's SIGNATURE (works the same for userB)")
+  def signDoc(user: User) = {
+    val sig = user.signECKey.doSign(task.fileHash)
+    println("sigBase64: " + sig.toBase64())
+    sig
+  }
+
+  println("UserA -------------")
+  val sigA = signDoc(userA)
+
+  println("UserB -------------")
+  val sigB = signDoc(userB)
+
+  //
+  //
+  //
+
+  step += 1
+  println(s"\n\n($step) ==================================================")
+  println("VERIFY SIGNATURE")
 
   println("userA's sig is valid?: " + userA.signECKey.verify(task.fileHash, sigA))
+  println("userB's sig is valid?: " + userB.signECKey.verify(task.fileHash, sigB))
 }
+
