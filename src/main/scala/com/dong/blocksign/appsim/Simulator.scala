@@ -95,11 +95,11 @@ object Simulator extends App {
     }
 
     override def toString() =
-      s"\tfileContent:${Hex.toHexString(fileContent)}\n\tfileHash:${Hex.toHexString(fileHash)}" +
-        s"\n\tguardKey(AES): ${Hex.toHexString(guardKey)}\n\tencryptedContent: ${Hex.toHexString(encryptedContent)}"
+      s"\tfileContent:${fileContent}\n\tfileHash:${Hex.toHexString(fileHash)}" +
+        s"\n\tguardKey(AES): ${Hex.toHexString(guardKey)}\n\tencryptedContent: ${encryptedContent}"
   }
 
-  val filein = Paths.get("/tmp/abc")
+  val filein = Paths.get("/Users/d/Desktop/b.pdf")
 
   val doc = DocToSign(Files.readAllBytes(filein))
   println("DocToSign:\n" + doc)
@@ -157,7 +157,6 @@ object Simulator extends App {
       cipher.doFinal(doc.encryptedContent)
     }
 
-    println(s"contentDecrypted: ${Hex.toHexString(contentDecrypted)}")
     val hash = HashUtil.sha3(contentDecrypted)
 
     val same = Hex.toHexString(hash) == Hex.toHexString(doc.fileHash)
